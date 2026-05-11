@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Bike Spot Logger</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <div id="appMessage" class="app-message hidden" role="status"></div>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Field operations</p>
+        <h1>Bike Spot Logger</h1>
+        <p class="subtitle">Capture bike drop-off spots, GPS locations, photos and export a manager-ready report.</p>
+      </div>
+      <div class="counter-card">
+        <span id="totalSpots">0</span>
+        <small>Total spots</small>
+      </div>
+    </header>
+
+    <section class="panel grid-panel">
+      <label for="defaultGrid">Default Grid Name</label>
+      <div class="inline-actions">
+        <input id="defaultGrid" type="text" placeholder="Example: CBD West Grid" autocomplete="off" />
+        <button id="saveGridBtn" class="secondary">Save</button>
+      </div>
+      <p id="gridStatus" class="hint">Set this once at the beginning of your walk. New spots will inherit it automatically.</p>
+    </section>
+
+    <main class="layout">
+      <section class="panel form-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">New / edit spot</p>
+            <h2 id="formTitle">Add New Spot</h2>
+          </div>
+          <button id="resetFormBtn" class="ghost" type="button">Clear</button>
+        </div>
+
+        <form id="spotForm">
+          <input type="hidden" id="editingId" />
+
+          <div class="field">
+            <label for="gridName">Grid Name</label>
+            <input id="gridName" type="text" required placeholder="CBD West Grid" />
+          </div>
+
+          <div class="field">
+            <label for="spotName">Spot Name</label>
+            <input id="spotName" type="text" required placeholder="Pyrmont Bridge" />
+          </div>
+
+          <div class="field two-col">
+            <div>
+              <label for="bikeCapacity">Bike Capacity</label>
+              <input id="bikeCapacity" type="text" required placeholder="10 bikes / 10–15 bikes" />
+            </div>
+            <div>
+              <label for="spotCategory">Spot Category</label>
+              <select id="spotCategory" required>
+                <option value="Government Designated">Government Designated</option>
+                <option value="Company Station">Company Station</option>
+                <option value="High Demand Spot">High Demand Spot</option>
+                <option value="Temporary Opportunity">Temporary Opportunity</option>
+                <option value="Do Not Use / Risky">Do Not Use / Risky</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="demand">Demand</label>
+            <select id="demand">
+              <option value="Null">Null</option>
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
+            </select>
+          </div>
+
+          <div class="field two-col">
+            <div>
+              <label for="appManaged">Spot in App</label>
+              <select id="appManaged">
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </div>
+            <div>
+              <label for="governmentDesignated">Government Designated</label>
+              <select id="governmentDesignated">
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="appSpotNameField" class="field hidden">
+            <label for="appSpotName">App Spot Name</label>
+            <input id="appSpotName" type="text" placeholder="Exact spot name shown in the app" />
+            <p class="hint">Required only when “Spot in App” is set to Yes. If No, the report will show N/A.</p>
+          </div>
+
+          <div class="field location-box">
+            <div class="section-head compact">
+              <div>
+                <label>GPS Location</label>
+                <p id="locationStatus" class="hint">No location captured yet.</p>
+              </div>
+              <button id="captureLocationBtn" class="secondary" type="button">Use Current Location</button>
+            </div>
+            <div class="two-col">
+              <input id="latitude" type="text" placeholder="Latitude" />
+              <input id="longitude" type="text" placeholder="Longitude" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="photoInput">Photo of the Spot</label>
+            <input id="photoInput" type="file" accept="image/*" capture="environment" />
+            <div id="photoPreviewWrap" class="photo-preview hidden">
+              <img id="photoPreview" alt="Spot preview" />
+              <button id="removePhotoBtn" class="ghost danger" type="button">Remove Photo</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Observations</label>
+            <div class="checkbox-grid" id="observationsGroup">
+              <label><input type="checkbox" value="Good visibility" /> Good visibility</label>
+              <label><input type="checkbox" value="Close to a loading zone" /> Close to a loading zone</label>
+              <label><input type="checkbox" value="Good place for dispatching bikes" /> Good place for dispatching bikes</label>
+              <label><input type="checkbox" value="No loading zone close" /> No loading zone close</label>
+              <label><input type="checkbox" value="Good place to gather bikes" /> Good place to gather bikes</label>
+            </div>
+            <p class="hint">Select all that apply. If none are selected, the report will show N/A.</p>
+          </div>
+
+          <div class="field">
+            <label for="description">Additional Comments</label>
+            <textarea id="description" rows="4" placeholder="Optional extra comments. If empty, the report will show N/A."></textarea>
+          </div>
+
+          <button class="primary full" type="submit" id="saveSpotBtn">Save Spot</button>
+        </form>
+      </section>
+
+      <section class="panel list-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Saved spots</p>
+            <h2>Review & Export</h2>
+          </div>
+          <div class="action-row">
+            <button id="exportDocBtn" class="primary" type="button">Export Word Report</button>
+            <button id="exportJsonBtn" class="secondary" type="button">Export JSON</button>
+            <button id="importJsonBtn" class="secondary" type="button">Import JSON</button>
+            <button id="deleteTodayBtn" class="ghost danger" type="button">Delete Today’s Records</button>
+            <input id="importJsonInput" class="hidden" type="file" accept="application/json,.json" />
+          </div>
+        </div>
+
+        <div class="filters">
+          <input id="searchInput" type="search" placeholder="Search spots or grids" />
+          <select id="categoryFilter">
+            <option value="All">All categories</option>
+            <option value="Government Designated">Government Designated</option>
+            <option value="Company Station">Company Station</option>
+            <option value="High Demand Spot">High Demand Spot</option>
+            <option value="Temporary Opportunity">Temporary Opportunity</option>
+            <option value="Do Not Use / Risky">Do Not Use / Risky</option>
+          </select>
+        </div>
+
+        <div class="report-filters" aria-label="Report date filters">
+          <div>
+            <label for="reportDateFrom">Report Date From</label>
+            <input id="reportDateFrom" type="date" />
+          </div>
+          <div>
+            <label for="reportDateTo">Report Date To</label>
+            <input id="reportDateTo" type="date" />
+          </div>
+          <button id="clearReportDatesBtn" class="ghost" type="button">Clear Report Dates</button>
+        </div>
+        <p class="hint report-filter-hint">The Word report will include only records within the selected date range. Leave blank to include all records.</p>
+
+        <div id="spotsList" class="spots-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <template id="emptyTemplate">
+    <div class="empty-state">
+      <h3>No spots saved yet</h3>
+      <p>Add your first bike drop-off spot using the form.</p>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
