@@ -4,238 +4,204 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0f172a" />
-  <title>Bike Spot Today Rescue</title>
-  <style>
-    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #0f172a; background: #f8fafc; }
-    body { margin: 0; padding: 18px; }
-    .wrap { max-width: 760px; margin: 0 auto; }
-    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; padding: 18px; box-shadow: 0 12px 28px rgba(15,23,42,.08); margin-bottom: 14px; }
-    h1 { margin: 0 0 8px; font-size: 1.6rem; }
-    h2 { margin: 0 0 10px; font-size: 1.1rem; }
-    p { line-height: 1.45; }
-    .danger { background: #fff7ed; border-color: #fed7aa; }
-    .ok { background: #ecfdf5; border-color: #a7f3d0; }
-    .muted { color: #64748b; font-size: .92rem; }
-    label { display:block; font-weight:700; margin-bottom:8px; }
-    input { width: 100%; box-sizing:border-box; border:1px solid #cbd5e1; border-radius:12px; padding:12px; font-size:1rem; }
-    button { width: 100%; border: 0; border-radius: 14px; padding: 13px 14px; margin: 7px 0; font-weight: 800; font-size: 1rem; background:#0f172a; color:#fff; }
-    button.secondary { background:#2563eb; }
-    button.safe { background:#059669; }
-    button.warn { background:#ea580c; }
-    button:disabled { opacity:.45; }
-    pre { white-space: pre-wrap; word-break: break-word; background:#0f172a; color:#e2e8f0; padding:12px; border-radius:12px; max-height: 260px; overflow:auto; }
-    .row { display:grid; gap: 10px; grid-template-columns: 1fr; }
-    @media (min-width: 650px) { .row { grid-template-columns: repeat(2, 1fr); } }
-  </style>
+  <title>Bike Spot Logger</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="wrap">
-    <section class="card danger">
-      <h1>Bike Spot Today Rescue</h1>
-      <p>This emergency page does not open the main app. It only reads today's saved records from IndexedDB and lets you export a backup.</p>
-      <p><strong>Do not clear Safari data, do not delete the Home Screen app, and do not remove website data before exporting.</strong></p>
-    </section>
-
-    <section class="card">
-      <h2>1. Select date to recover</h2>
-      <label for="recoveryDate">Recovery Date</label>
-      <input id="recoveryDate" type="date" />
-      <p class="muted">Default is today's date according to this device. The search uses local-day boundaries.</p>
-      <button id="scanBtn" class="secondary">Scan selected day</button>
-    </section>
-
-    <section class="card" id="statusCard">
-      <h2>Status</h2>
-      <p id="status">Ready. Tap “Scan selected day”.</p>
-      <pre id="details" hidden></pre>
-    </section>
-
-    <section class="card ok">
-      <h2>2. Export backups</h2>
-      <p>Start with metadata. It excludes photo data and is much safer if Safari is low on memory.</p>
-      <div class="row">
-        <button id="metadataBtn" class="safe" disabled>Export selected day metadata</button>
-        <button id="fullBtn" class="warn" disabled>Export selected day full JSON</button>
+  <div class="app-shell">
+    <div id="appMessage" class="app-message hidden" role="status"></div>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Field operations</p>
+        <h1>Bike Spot Logger</h1>
+        <p class="subtitle">Capture bike drop-off spots, GPS locations, photos and export a manager-ready report.</p>
       </div>
-      <p class="muted">Full JSON includes photos and may be heavier. Use it only after metadata is safely downloaded.</p>
+      <div class="counter-card">
+        <span id="totalSpots">0</span>
+        <small>Total spots</small>
+      </div>
+    </header>
+
+    <section class="panel grid-panel">
+      <label for="defaultGrid">Default Grid Name</label>
+      <div class="inline-actions">
+        <input id="defaultGrid" type="text" placeholder="Example: CBD West Grid" autocomplete="off" />
+        <button id="saveGridBtn" class="secondary">Save</button>
+      </div>
+      <p id="gridStatus" class="hint">Set this once at the beginning of your walk. New spots will inherit it automatically.</p>
     </section>
+
+    <main class="layout">
+      <section class="panel form-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">New / edit spot</p>
+            <h2 id="formTitle">Add New Spot</h2>
+          </div>
+          <button id="resetFormBtn" class="ghost" type="button">Clear</button>
+        </div>
+
+        <form id="spotForm">
+          <input type="hidden" id="editingId" />
+
+          <div class="field">
+            <label for="gridName">Grid Name</label>
+            <input id="gridName" type="text" required placeholder="CBD West Grid" />
+          </div>
+
+          <div class="field">
+            <label for="spotName">Spot Name</label>
+            <input id="spotName" type="text" required placeholder="Pyrmont Bridge" />
+          </div>
+
+          <div class="field two-col">
+            <div>
+              <label for="bikeCapacity">Bike Capacity</label>
+              <input id="bikeCapacity" type="text" required placeholder="10 bikes / 10–15 bikes" />
+            </div>
+            <div>
+              <label for="spotCategory">Spot Category</label>
+              <select id="spotCategory" required>
+                <option value="Government Designated">Government Designated</option>
+                <option value="Company Station">Company Station</option>
+                <option value="High Demand Spot">High Demand Spot</option>
+                <option value="Temporary Opportunity">Temporary Opportunity</option>
+                <option value="Do Not Use / Risky">Do Not Use / Risky</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="demand">Demand</label>
+            <select id="demand">
+              <option value="Null">Null</option>
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
+            </select>
+          </div>
+
+          <div class="field two-col">
+            <div>
+              <label for="appManaged">Spot in App</label>
+              <select id="appManaged">
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </div>
+            <div>
+              <label for="governmentDesignated">Government Designated</label>
+              <select id="governmentDesignated">
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="appSpotNameField" class="field hidden">
+            <label for="appSpotName">App Spot Name</label>
+            <input id="appSpotName" type="text" placeholder="Exact spot name shown in the app" />
+            <p class="hint">Required only when “Spot in App” is set to Yes. If No, the report will show N/A.</p>
+          </div>
+
+          <div class="field location-box">
+            <div class="section-head compact">
+              <div>
+                <label>GPS Location</label>
+                <p id="locationStatus" class="hint">No location captured yet.</p>
+              </div>
+              <button id="captureLocationBtn" class="secondary" type="button">Use Current Location</button>
+            </div>
+            <div class="two-col">
+              <input id="latitude" type="text" placeholder="Latitude" />
+              <input id="longitude" type="text" placeholder="Longitude" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="photoInput">Photo of the Spot</label>
+            <input id="photoInput" type="file" accept="image/*" capture="environment" />
+            <div id="photoPreviewWrap" class="photo-preview hidden">
+              <img id="photoPreview" alt="Spot preview" />
+              <button id="removePhotoBtn" class="ghost danger" type="button">Remove Photo</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Observations</label>
+            <div class="checkbox-grid" id="observationsGroup">
+              <label><input type="checkbox" value="Good visibility" /> Good visibility</label>
+              <label><input type="checkbox" value="Close to a loading zone" /> Close to a loading zone</label>
+              <label><input type="checkbox" value="Good place for dispatching bikes" /> Good place for dispatching bikes</label>
+              <label><input type="checkbox" value="No loading zone close" /> No loading zone close</label>
+              <label><input type="checkbox" value="Good place to gather bikes" /> Good place to gather bikes</label>
+            </div>
+            <p class="hint">Select all that apply. If none are selected, the report will show N/A.</p>
+          </div>
+
+          <div class="field">
+            <label for="description">Additional Comments</label>
+            <textarea id="description" rows="4" placeholder="Optional extra comments. If empty, the report will show N/A."></textarea>
+          </div>
+
+          <button class="primary full" type="submit" id="saveSpotBtn">Save Spot</button>
+        </form>
+      </section>
+
+      <section class="panel list-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Saved spots</p>
+            <h2>Review & Export</h2>
+          </div>
+          <div class="action-row">
+            <button id="exportDocBtn" class="primary" type="button">Export DOCX Report</button>
+            <button id="exportJsonBtn" class="secondary" type="button">Export JSON</button>
+            <button id="importJsonBtn" class="secondary" type="button">Import JSON</button>
+            <button id="deleteTodayBtn" class="ghost danger" type="button">Delete Today’s Records</button>
+            <input id="importJsonInput" class="hidden" type="file" accept="application/json,.json" />
+          </div>
+        </div>
+
+        <div class="filters">
+          <input id="searchInput" type="search" placeholder="Search spots or grids" />
+          <select id="categoryFilter">
+            <option value="All">All categories</option>
+            <option value="Government Designated">Government Designated</option>
+            <option value="Company Station">Company Station</option>
+            <option value="High Demand Spot">High Demand Spot</option>
+            <option value="Temporary Opportunity">Temporary Opportunity</option>
+            <option value="Do Not Use / Risky">Do Not Use / Risky</option>
+          </select>
+        </div>
+
+        <div class="report-filters" aria-label="Report date filters">
+          <div>
+            <label for="reportDateFrom">Report Date From</label>
+            <input id="reportDateFrom" type="date" />
+          </div>
+          <div>
+            <label for="reportDateTo">Report Date To</label>
+            <input id="reportDateTo" type="date" />
+          </div>
+          <button id="clearReportDatesBtn" class="ghost" type="button">Clear Report Dates</button>
+        </div>
+        <p class="hint report-filter-hint">The Word report will include only records within the selected date range. Leave blank to include all records.</p>
+
+        <div id="spotsList" class="spots-list"></div>
+      </section>
+    </main>
   </div>
 
-<script>
-(function () {
-  const DB_NAME = 'bikeSpotLoggerDB';
-  const SPOTS_STORE = 'spots';
-  const DEFAULT_GRID_KEY = 'bikeSpotLogger.defaultGrid.v1';
-  let recoveredRecords = [];
-  let selectedDate = '';
+  <template id="emptyTemplate">
+    <div class="empty-state">
+      <h3>No spots saved yet</h3>
+      <p>Add your first bike drop-off spot using the form.</p>
+    </div>
+  </template>
 
-  const $ = (id) => document.getElementById(id);
-
-  function localDateString(d = new Date()) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  }
-
-  function setStatus(message, extra) {
-    $('status').textContent = message;
-    if (extra) {
-      $('details').hidden = false;
-      $('details').textContent = typeof extra === 'string' ? extra : JSON.stringify(extra, null, 2);
-    } else {
-      $('details').hidden = true;
-      $('details').textContent = '';
-    }
-  }
-
-  function openDatabase() {
-    return new Promise((resolve, reject) => {
-      if (!('indexedDB' in window)) {
-        reject(new Error('IndexedDB is not supported in this browser.'));
-        return;
-      }
-      const request = indexedDB.open(DB_NAME);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error('Could not open IndexedDB.'));
-      request.onblocked = () => reject(new Error('IndexedDB open request was blocked. Fully close the main app and try again.'));
-    });
-  }
-
-  function getBoundsForLocalDate(dateStr) {
-    const start = new Date(`${dateStr}T00:00:00`);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    return { startIso: start.toISOString(), endIso: end.toISOString() };
-  }
-
-  function readRecordsByCreatedAtIndex(db, dateStr) {
-    return new Promise((resolve, reject) => {
-      if (!db.objectStoreNames.contains(SPOTS_STORE)) {
-        reject(new Error(`Object store not found: ${SPOTS_STORE}`));
-        return;
-      }
-      const { startIso, endIso } = getBoundsForLocalDate(dateStr);
-      const tx = db.transaction(SPOTS_STORE, 'readonly');
-      const store = tx.objectStore(SPOTS_STORE);
-      let source = null;
-      try {
-        source = store.index('createdAt');
-      } catch (err) {
-        source = store;
-      }
-      const range = IDBKeyRange.bound(startIso, endIso, false, true);
-      const records = [];
-      let request;
-      try {
-        request = source.openCursor(range);
-      } catch (err) {
-        request = store.openCursor();
-      }
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor) return;
-        const value = cursor.value;
-        if (isRecordOnLocalDate(value, dateStr)) {
-          records.push(value);
-        }
-        cursor.continue();
-      };
-      request.onerror = () => reject(request.error || new Error('Could not read records.'));
-      tx.oncomplete = () => resolve(records);
-      tx.onerror = () => reject(tx.error || new Error('Transaction failed.'));
-    });
-  }
-
-  function isRecordOnLocalDate(record, dateStr) {
-    if (!record || !record.createdAt) return false;
-    const d = new Date(record.createdAt);
-    if (Number.isNaN(d.getTime())) return false;
-    return localDateString(d) === dateStr;
-  }
-
-  function removePhotoFields(record) {
-    const copy = Array.isArray(record) ? [...record] : { ...record };
-    for (const key of Object.keys(copy)) {
-      const value = copy[key];
-      const lower = key.toLowerCase();
-      if (
-        lower.includes('photo') ||
-        lower.includes('image') ||
-        (typeof value === 'string' && value.startsWith('data:image'))
-      ) {
-        copy[key] = value ? '[PHOTO_REMOVED_FOR_SAFE_RECOVERY]' : '';
-      }
-    }
-    return copy;
-  }
-
-  function downloadJson(filename, data) {
-    const json = JSON.stringify(data, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  async function scan() {
-    selectedDate = $('recoveryDate').value || localDateString();
-    recoveredRecords = [];
-    $('metadataBtn').disabled = true;
-    $('fullBtn').disabled = true;
-    setStatus(`Scanning records for ${selectedDate}...`);
-    let db;
-    try {
-      db = await openDatabase();
-      const records = await readRecordsByCreatedAtIndex(db, selectedDate);
-      recoveredRecords = records.sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
-      const preview = recoveredRecords.map((r, index) => ({
-        number: index + 1,
-        gridName: r.gridName || 'N/A',
-        spotName: r.spotName || 'N/A',
-        createdAt: r.createdAt || 'N/A',
-        hasPhoto: Boolean(r.photoDataUrl || r.photo || r.imageDataUrl),
-        coordinates: r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : 'N/A'
-      }));
-      setStatus(`Found ${recoveredRecords.length} records for ${selectedDate}.`, preview);
-      $('metadataBtn').disabled = recoveredRecords.length === 0;
-      $('fullBtn').disabled = recoveredRecords.length === 0;
-    } catch (err) {
-      setStatus('Recovery scan failed.', String(err && err.message ? err.message : err));
-    } finally {
-      if (db) db.close();
-    }
-  }
-
-  function buildBackup(includePhotos) {
-    return {
-      backupType: includePhotos ? 'selected-day-full-with-photos' : 'selected-day-metadata-no-photos',
-      recoveredAt: new Date().toISOString(),
-      selectedDate,
-      origin: location.origin,
-      path: location.pathname,
-      defaultGridName: localStorage.getItem(DEFAULT_GRID_KEY) || '',
-      totalRecoveredRecords: recoveredRecords.length,
-      spots: includePhotos ? recoveredRecords : recoveredRecords.map(removePhotoFields)
-    };
-  }
-
-  $('scanBtn').addEventListener('click', scan);
-  $('metadataBtn').addEventListener('click', () => {
-    downloadJson(`bike-spot-${selectedDate}-metadata-recovery.json`, buildBackup(false));
-  });
-  $('fullBtn').addEventListener('click', () => {
-    if (!confirm('Full JSON includes photo data and may be heavy. Continue?')) return;
-    downloadJson(`bike-spot-${selectedDate}-full-recovery.json`, buildBackup(true));
-  });
-
-  $('recoveryDate').value = localDateString();
-})();
-</script>
+  <script src="https://cdn.jsdelivr.net/npm/html-docx-js@0.3.1/dist/html-docx.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

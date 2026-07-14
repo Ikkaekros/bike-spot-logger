@@ -75,7 +75,7 @@ function openDatabase() {
   return dbPromise;
 }
 
-async function getAllSpotsFromDb() {
+async function getAllFullSpotsFromDb() {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SPOTS_STORE, 'readonly');
@@ -83,6 +83,40 @@ async function getAllSpotsFromDb() {
     const request = store.getAll();
     request.onsuccess = () => resolve((request.result || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
     request.onerror = () => reject(request.error || new Error('Could not read spots.'));
+  });
+}
+
+async function getAllSpotSummariesFromDb() {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SPOTS_STORE, 'readonly');
+    const store = tx.objectStore(SPOTS_STORE);
+    const request = store.openCursor();
+    const summaries = [];
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        summaries.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        resolve(summaries);
+        return;
+      }
+      const record = cursor.value || {};
+      const summary = { ...record, hasPhoto: Boolean(record.photoDataUrl), photoDataUrl: '' };
+      summaries.push(summary);
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error || new Error('Could not read spot summaries.'));
+  });
+}
+
+async function getSpotByIdFromDb(id) {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SPOTS_STORE, 'readonly');
+    const store = tx.objectStore(SPOTS_STORE);
+    const request = store.get(id);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error('Could not read this spot.'));
   });
 }
 
@@ -124,7 +158,7 @@ async function migrateLegacyLocalStorage() {
   try {
     const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || '[]');
     if (Array.isArray(legacy) && legacy.length) {
-      const existing = await getAllSpotsFromDb();
+      const existing = await getAllFullSpotsFromDb();
       const existingIds = new Set(existing.map((spot) => spot.id));
       const merged = [...existing, ...legacy.map(normalizeImportedSpot).filter((spot) => !existingIds.has(spot.id))];
       await replaceAllSpotsInDb(merged);
@@ -137,7 +171,7 @@ async function migrateLegacyLocalStorage() {
 
 async function refreshSpots(options = {}) {
   try {
-    spots = await getAllSpotsFromDb();
+    spots = await getAllSpotSummariesFromDb();
     renderSpots();
     if (options.successMessage) showMessage(options.successMessage, 'success');
   } catch (error) {
@@ -217,6 +251,9 @@ function toggleAppSpotNameField() {
 }
 function downloadFile(filename, content, mimeType) {
   const blob = new Blob([content], { type: mimeType });
+  downloadBlob(filename, blob);
+}
+function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -265,7 +302,7 @@ function renderSpots() {
     return;
   }
   spotsList.innerHTML = filtered.map((spot) => {
-    const photo = spot.photoDataUrl ? `<img class="thumb" src="${spot.photoDataUrl}" alt="${escapeHtml(spot.spotName)} photo" />` : `<div class="thumb">No photo</div>`;
+    const photo = spot.hasPhoto || spot.photoDataUrl ? `<div class="thumb">Photo saved</div>` : `<div class="thumb">No photo</div>`;
     const mapLink = spot.googleMapsUrl ? `<a href="${spot.googleMapsUrl}" target="_blank" rel="noreferrer">Open in Google Maps</a>` : `<span class="hint">No GPS location</span>`;
     return `<article class="spot-card">
       <div class="spot-top">
@@ -294,9 +331,12 @@ function renderSpots() {
     </article>`;
   }).join('');
 }
-window.editSpot = function(id) {
-  const spot = spots.find((item) => item.id === id);
-  if (!spot) return;
+window.editSpot = async function(id) {
+  const spot = await getSpotByIdFromDb(id);
+  if (!spot) {
+    showMessage('Could not load this spot for editing.', 'error');
+    return;
+  }
   editingIdInput.value = spot.id;
   gridNameInput.value = spot.gridName || '';
   spotNameInput.value = spot.spotName || '';
@@ -431,9 +471,17 @@ async function submitSpot(event) {
     showMessage('Could not save. Browser database storage may be unavailable or full. Try a smaller photo or export/delete older records.', 'error');
   }
 }
-function exportJson() {
+async function exportJson() {
   const date = new Date().toISOString().slice(0, 10);
-  downloadFile(`bike-spot-backup-${date}.json`, JSON.stringify({ storage: 'IndexedDB', defaultGridName: localStorage.getItem(GRID_KEY) || '', spots }, null, 2), 'application/json');
+  try {
+    showMessage('Preparing full JSON backup…', 'info');
+    const fullSpots = await getAllFullSpotsFromDb();
+    downloadFile(`bike-spot-backup-${date}.json`, JSON.stringify({ storage: 'IndexedDB', defaultGridName: localStorage.getItem(GRID_KEY) || '', spots: fullSpots }, null, 2), 'application/json');
+    showMessage('Full JSON backup exported.', 'success');
+  } catch (error) {
+    console.error(error);
+    showMessage('Could not export the full JSON backup. Try exporting fewer records after deleting old data.', 'error');
+  }
 }
 async function deleteTodaysRecords() {
   const todayKey = localDateKey();
@@ -445,8 +493,10 @@ async function deleteTodaysRecords() {
   const message = `This will delete ${todaysCount} record${todaysCount === 1 ? '' : 's'} saved today. This action cannot be undone. Continue?`;
   if (!confirm(message)) return;
   try {
-    const remaining = spots.filter((spot) => localDateKey(spot.createdAt) !== todayKey);
-    await replaceAllSpotsInDb(remaining);
+    const todayIds = spots.filter((spot) => localDateKey(spot.createdAt) === todayKey).map((spot) => spot.id);
+    for (const id of todayIds) {
+      await deleteSpotFromDb(id);
+    }
     await refreshSpots({ successMessage: 'Today’s records were deleted.' });
     resetForm();
   } catch (error) {
@@ -502,12 +552,7 @@ function reportDateFilterLabel() {
   if (to) return `Up to ${to}`;
   return 'All records';
 }
-function exportDoc() {
-  const defaultGrid = localStorage.getItem(GRID_KEY) || 'Not specified';
-  const date = new Date();
-  const reportDate = new Intl.DateTimeFormat('en-AU', { dateStyle: 'full', timeStyle: 'short' }).format(date);
-  const reportSpots = getSpotsForReport();
-  const dateFilterLabel = reportDateFilterLabel();
+function buildReportHtml(reportSpots, defaultGrid, reportDate, dateFilterLabel) {
   const sections = reportSpots.map((spot, index) => `
     <div class="spot-section">
       <h2>${index + 1}. ${escapeHtml(spot.spotName)}</h2>
@@ -526,11 +571,61 @@ function exportDoc() {
       ${spot.photoDataUrl ? `<img src="${spot.photoDataUrl}" style="height: 5cm; width: auto; max-width: 100%; object-fit: contain; border: 1px solid #ddd; border-radius: 8px;" />` : '<p>No photo added.</p>'}
     </div>
   `).join('<hr/>');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Bike Spot Field Report</title>
-    <style>body{font-family:Arial,sans-serif;color:#111827;line-height:1.45;} h1{font-size:28px;} h2{font-size:20px;margin-top:28px;} .header{border-bottom:2px solid #111827;margin-bottom:20px;padding-bottom:12px;} .spot-section{page-break-inside:avoid;margin:20px 0;} a{color:#1d4ed8;} hr{border:0;border-top:1px solid #ddd;margin:24px 0;}</style>
-    </head><body><div class="header"><h1>Bike Spot Field Report</h1><p><strong>Report Date:</strong> ${escapeHtml(reportDate)}</p><p><strong>Default Grid:</strong> ${escapeHtml(defaultGrid)}</p><p><strong>Date Filter:</strong> ${escapeHtml(dateFilterLabel)}</p><p><strong>Total Spots in Report:</strong> ${reportSpots.length}</p></div>${sections || '<p>No spots found for the selected report date filter.</p>'}</body></html>`;
+  return `<!doctype html>
+  <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <title>Bike Spot Field Report</title>
+      <style>
+        @page { margin: 1.8cm; }
+        body { font-family: Arial, sans-serif; color: #111827; line-height: 1.45; }
+        h1 { font-size: 28px; }
+        h2 { font-size: 20px; margin-top: 28px; }
+        .header { border-bottom: 2px solid #111827; margin-bottom: 20px; padding-bottom: 12px; }
+        .spot-section { page-break-inside: avoid; margin: 20px 0; }
+        a { color: #1d4ed8; }
+        hr { border: 0; border-top: 1px solid #ddd; margin: 24px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>Bike Spot Field Report</h1>
+        <p><strong>Report Date:</strong> ${escapeHtml(reportDate)}</p>
+        <p><strong>Default Grid:</strong> ${escapeHtml(defaultGrid)}</p>
+        <p><strong>Date Filter:</strong> ${escapeHtml(dateFilterLabel)}</p>
+        <p><strong>Total Spots in Report:</strong> ${reportSpots.length}</p>
+      </div>
+      ${sections || '<p>No spots found for the selected report date filter.</p>'}
+    </body>
+  </html>`;
+}
+async function exportDoc() {
+  const defaultGrid = localStorage.getItem(GRID_KEY) || 'Not specified';
+  const date = new Date();
+  const reportDate = new Intl.DateTimeFormat('en-AU', { dateStyle: 'full', timeStyle: 'short' }).format(date);
+  const reportSummaries = getSpotsForReport();
+  const dateFilterLabel = reportDateFilterLabel();
+  showMessage('Preparing report records…', 'info');
+  const reportSpots = (await Promise.all(reportSummaries.map((spot) => getSpotByIdFromDb(spot.id)))).filter(Boolean);
+  const html = buildReportHtml(reportSpots, defaultGrid, reportDate, dateFilterLabel);
   const fileDate = date.toISOString().slice(0, 10);
-  downloadFile(`bike-spot-field-report-${fileDate}.doc`, html, 'application/msword;charset=utf-8');
+  const filename = `bike-spot-field-report-${fileDate}.docx`;
+
+  if (!window.htmlDocx || typeof window.htmlDocx.asBlob !== 'function') {
+    showMessage('DOCX converter could not be loaded. Downloading a Word-compatible .doc fallback instead.', 'error');
+    downloadFile(`bike-spot-field-report-${fileDate}.doc`, html, 'application/msword;charset=utf-8');
+    return;
+  }
+
+  try {
+    const blob = window.htmlDocx.asBlob(html);
+    downloadBlob(filename, blob);
+    showMessage('DOCX report generated.', 'success');
+  } catch (error) {
+    console.error(error);
+    showMessage('Could not generate DOCX. Downloading a Word-compatible .doc fallback instead.', 'error');
+    downloadFile(`bike-spot-field-report-${fileDate}.doc`, html, 'application/msword;charset=utf-8');
+  }
 }
 
 $('saveGridBtn').addEventListener('click', setDefaultGrid);
