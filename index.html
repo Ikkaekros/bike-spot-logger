@@ -1,206 +1,291 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0f172a" />
-  <title>Bike Spot Logger</title>
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="styles.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Bike Spot Logger — Emergency Home Screen Recovery</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #0b1220; color: #edf2f7; }
+    main { width: min(760px, calc(100% - 28px)); margin: 24px auto 60px; }
+    .card { background: #111b2e; border: 1px solid #273650; border-radius: 16px; padding: 18px; margin: 14px 0; }
+    h1 { font-size: 1.55rem; margin: 0 0 8px; }
+    h2 { font-size: 1.12rem; margin-top: 0; }
+    p { line-height: 1.45; color: #c9d4e5; }
+    button, .download-link { display: block; width: 100%; box-sizing: border-box; border: 0; border-radius: 12px; padding: 14px 16px; margin: 10px 0; font-weight: 700; font-size: 1rem; text-align: center; text-decoration: none; }
+    button { background: #4f8cff; color: white; }
+    button.secondary { background: #283750; }
+    button.warning { background: #a35b13; }
+    button:disabled { opacity: .45; }
+    .status { white-space: pre-wrap; background: #09101d; border-radius: 12px; padding: 12px; min-height: 44px; }
+    .record { border-top: 1px solid #273650; padding: 12px 0; }
+    .record:first-child { border-top: 0; }
+    .small { font-size: .88rem; color: #aebbd0; }
+    .ok { color: #75e0a7; }
+    .error { color: #ff9c9c; }
+    code { overflow-wrap: anywhere; }
+  </style>
 </head>
 <body>
-  <div class="app-shell">
-    <div id="appMessage" class="app-message hidden" role="status"></div>
-    <header class="hero">
-      <div>
-        <p class="eyebrow">Field operations</p>
-        <h1>Bike Spot Logger</h1>
-        <p class="subtitle">Capture bike drop-off spots, GPS locations, photos and export a manager-ready report.</p>
-      </div>
-      <div class="counter-card">
-        <span id="totalSpots">0</span>
-        <small>Total spots</small>
-      </div>
-    </header>
+<main>
+  <section class="card">
+    <h1>Bike Spot Logger — Emergency Home Screen Recovery</h1>
+    <p>This emergency page replaces the main app temporarily. Open it using the same Home Screen icon where the records were created. It reads the existing IndexedDB database without loading photos onto the screen.</p>
+    <div id="status" class="status">Ready. Opened from the Home Screen icon? Tap “Scan saved records”.</div>
+    <button id="scanBtn">Scan saved records</button>
+  </section>
 
-    <section class="panel grid-panel">
-      <label for="defaultGrid">Default Grid Name</label>
-      <div class="inline-actions">
-        <input id="defaultGrid" type="text" placeholder="Example: CBD West Grid" autocomplete="off" />
-        <button id="saveGridBtn" class="secondary">Save</button>
-      </div>
-      <p id="gridStatus" class="hint">Set this once at the beginning of your walk. New spots will inherit it automatically.</p>
-    </section>
+  <section class="card">
+    <h2>1. Rescue essential data first</h2>
+    <p>Exports all text, GPS, dates, categories and comments, but excludes photos. This is the safest and lightest backup.</p>
+    <button id="metadataBtn" disabled>Export metadata backup (no photos)</button>
+  </section>
 
-    <main class="layout">
-      <section class="panel form-panel">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">New / edit spot</p>
-            <h2 id="formTitle">Add New Spot</h2>
-          </div>
-          <button id="resetFormBtn" class="ghost" type="button">Clear</button>
-        </div>
+  <section class="card">
+    <h2>2. Rescue everything</h2>
+    <p>The full backup includes compressed photos. It may be large. Try it only after exporting the metadata backup.</p>
+    <button id="fullBtn" class="warning" disabled>Export full JSON backup</button>
+    <p class="small">If the full export causes Safari to close, use the individual downloads below.</p>
+  </section>
 
-        <form id="spotForm">
-          <input type="hidden" id="editingId" />
+  <section class="card">
+    <h2>Individual records</h2>
+    <div id="records"><p class="small">No scan yet.</p></div>
+  </section>
+</main>
+<script>
+(() => {
+  'use strict';
+  const DB_NAME = 'bikeSpotLoggerDB';
+  const STORE_NAME = 'spots';
+  const statusEl = document.getElementById('status');
+  const recordsEl = document.getElementById('records');
+  const scanBtn = document.getElementById('scanBtn');
+  const metadataBtn = document.getElementById('metadataBtn');
+  const fullBtn = document.getElementById('fullBtn');
+  let db = null;
+  let summaries = [];
 
-          <div class="field">
-            <label for="gridName">Grid Name</label>
-            <input id="gridName" type="text" required placeholder="CBD West Grid" />
-          </div>
+  function setStatus(text, type = '') {
+    statusEl.textContent = text;
+    statusEl.className = `status ${type}`;
+  }
 
-          <div class="field">
-            <label for="spotName">Spot Name</label>
-            <input id="spotName" type="text" required placeholder="Pyrmont Bridge" />
-          </div>
+  function safeName(value) {
+    return String(value || 'spot').replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'spot';
+  }
 
-          <div class="field two-col">
-            <div>
-              <label for="bikeCapacity">Bike Capacity</label>
-              <input id="bikeCapacity" type="text" required placeholder="10 bikes / 10–15 bikes" />
-            </div>
-            <div>
-              <label for="spotCategory">Spot Category</label>
-              <select id="spotCategory" required>
-                <option value="Government Designated">Government Designated</option>
-                <option value="Company Station">Company Station</option>
-                <option value="High Demand Spot">High Demand Spot</option>
-                <option value="Temporary Opportunity">Temporary Opportunity</option>
-                <option value="Do Not Use / Risky">Do Not Use / Risky</option>
-              </select>
-            </div>
-          </div>
+  function download(filename, parts, type = 'application/json') {
+    const blob = new Blob(Array.isArray(parts) ? parts : [parts], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
 
-          <div class="field">
-            <label for="demand">Demand</label>
-            <select id="demand">
-              <option value="Null">Null</option>
-              <option value="Low">Low</option>
-              <option value="Medium">Medium</option>
-              <option value="High">High</option>
-            </select>
-          </div>
+  function openExistingDatabase() {
+    return new Promise((resolve, reject) => {
+      let created = false;
+      const request = indexedDB.open(DB_NAME);
+      request.onupgradeneeded = () => {
+        created = true;
+        try { request.transaction.abort(); } catch (_) {}
+      };
+      request.onerror = () => {
+        if (created) reject(new Error('The Bike Spot Logger database was not found in this browser/origin.'));
+        else reject(request.error || new Error('Could not open IndexedDB.'));
+      };
+      request.onsuccess = () => {
+        if (created) {
+          request.result.close();
+          reject(new Error('The Bike Spot Logger database was not found in this browser/origin.'));
+          return;
+        }
+        const opened = request.result;
+        if (!opened.objectStoreNames.contains(STORE_NAME)) {
+          opened.close();
+          reject(new Error('The database exists, but the spots store was not found.'));
+          return;
+        }
+        resolve(opened);
+      };
+      request.onblocked = () => reject(new Error('The database is blocked by another open tab. Close other Bike Spot Logger tabs and retry.'));
+    });
+  }
 
-          <div class="field two-col">
-            <div>
-              <label for="appManaged">Spot in App</label>
-              <select id="appManaged">
-                <option value="No">No</option>
-                <option value="Yes">Yes</option>
-              </select>
-            </div>
-            <div>
-              <label for="governmentDesignated">Government Designated</label>
-              <select id="governmentDesignated">
-                <option value="No">No</option>
-                <option value="Yes">Yes</option>
-              </select>
-            </div>
-          </div>
+  function scanSummaries() {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.openCursor();
+      const result = [];
+      request.onerror = () => reject(request.error || new Error('Could not scan records.'));
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const v = cursor.value || {};
+        result.push({
+          id: v.id,
+          spotName: v.spotName || 'Unnamed spot',
+          gridName: v.gridName || '',
+          createdAt: v.createdAt || '',
+          hasPhoto: Boolean(v.photoDataUrl),
+          photoBytesApprox: v.photoDataUrl ? Math.round(v.photoDataUrl.length * 0.75) : 0
+        });
+        cursor.continue();
+      };
+      tx.oncomplete = () => resolve(result);
+      tx.onerror = () => reject(tx.error || new Error('Could not complete scan.'));
+    });
+  }
 
-          <div id="appSpotNameField" class="field hidden">
-            <label for="appSpotName">App Spot Name</label>
-            <input id="appSpotName" type="text" placeholder="Exact spot name shown in the app" />
-            <p class="hint">Required only when “Spot in App” is set to Yes. If No, the report will show N/A.</p>
-          </div>
+  function getRecord(id) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).get(id);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('Could not read record.'));
+    });
+  }
 
-          <div class="field location-box">
-            <div class="section-head compact">
-              <div>
-                <label>GPS Location</label>
-                <p id="locationStatus" class="hint">No location captured yet.</p>
-              </div>
-              <button id="captureLocationBtn" class="secondary" type="button">Use Current Location</button>
-            </div>
-            <div class="two-col">
-              <input id="latitude" type="text" placeholder="Latitude" />
-              <input id="longitude" type="text" placeholder="Longitude" />
-            </div>
-          </div>
+  async function exportMetadata() {
+    try {
+      setStatus('Creating metadata backup…');
+      const records = [];
+      for (const summary of summaries) {
+        const record = await getRecord(summary.id);
+        if (!record) continue;
+        const clone = { ...record };
+        delete clone.photoDataUrl;
+        clone.photoExcludedFromRecoveryBackup = Boolean(record.photoDataUrl);
+        records.push(clone);
+      }
+      const payload = {
+        recoveryType: 'metadata-without-photos',
+        exportedAt: new Date().toISOString(),
+        origin: location.origin,
+        recoveryContext: window.navigator.standalone ? "ios-home-screen-web-app" : "browser",
+        databaseName: DB_NAME,
+        spots: records
+      };
+      download(`bike-spot-recovery-metadata-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(payload, null, 2));
+      setStatus(`Metadata backup created for ${records.length} record(s). Keep this file safe.`, 'ok');
+    } catch (error) {
+      console.error(error);
+      setStatus(`Metadata export failed: ${error.message}`, 'error');
+    }
+  }
 
-          <div class="field">
-            <label for="photoInput">Photo of the Spot</label>
-            <input id="photoInput" type="file" accept="image/*" capture="environment" />
-            <div id="photoPreviewWrap" class="photo-preview hidden">
-              <img id="photoPreview" alt="Spot preview" />
-              <button id="removePhotoBtn" class="ghost danger" type="button">Remove Photo</button>
-            </div>
-          </div>
+  async function exportFull() {
+    try {
+      setStatus('Creating full backup. Do not close this page…');
+      const parts = ['{"recoveryType":"full","exportedAt":', JSON.stringify(new Date().toISOString()), ',"origin":', JSON.stringify(location.origin), ',"spots":['];
+      let first = true;
+      let count = 0;
+      for (const summary of summaries) {
+        const record = await getRecord(summary.id);
+        if (!record) continue;
+        if (!first) parts.push(',');
+        parts.push(JSON.stringify(record));
+        first = false;
+        count += 1;
+        setStatus(`Preparing full backup… ${count}/${summaries.length}`);
+        await new Promise(requestAnimationFrame);
+      }
+      parts.push(']}');
+      download(`bike-spot-recovery-full-${new Date().toISOString().slice(0,10)}.json`, parts);
+      setStatus(`Full backup created for ${count} record(s).`, 'ok');
+    } catch (error) {
+      console.error(error);
+      setStatus(`Full export failed: ${error.message}. Use individual record downloads instead.`, 'error');
+    }
+  }
 
-          <div class="field">
-            <label>Observations</label>
-            <div class="checkbox-grid" id="observationsGroup">
-              <label><input type="checkbox" value="Good visibility" /> Good visibility</label>
-              <label><input type="checkbox" value="Close to a loading zone" /> Close to a loading zone</label>
-              <label><input type="checkbox" value="Good place for dispatching bikes" /> Good place for dispatching bikes</label>
-              <label><input type="checkbox" value="No loading zone close" /> No loading zone close</label>
-              <label><input type="checkbox" value="Good place to gather bikes" /> Good place to gather bikes</label>
-            </div>
-            <p class="hint">Select all that apply. If none are selected, the report will show N/A.</p>
-          </div>
+  async function downloadIndividual(id, mode) {
+    try {
+      const record = await getRecord(id);
+      if (!record) throw new Error('Record not found.');
+      const base = `${safeName(record.spotName)}-${safeName(record.id)}`;
+      if (mode === 'record') {
+        download(`${base}.json`, JSON.stringify({ recoveryType: 'individual-full-record', exportedAt: new Date().toISOString(), spot: record }, null, 2));
+      } else if (mode === 'photo') {
+        if (!record.photoDataUrl) throw new Error('This record has no photo.');
+        const match = /^data:([^;,]+)(?:;charset=[^;,]+)?;base64,(.*)$/i.exec(record.photoDataUrl);
+        if (!match) throw new Error('Photo format is not recognised.');
+        const mime = match[1];
+        const bytes = Uint8Array.from(atob(match[2]), c => c.charCodeAt(0));
+        const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+        download(`${base}.${ext}`, [bytes], mime);
+      }
+      setStatus(`Downloaded ${record.spotName}.`, 'ok');
+    } catch (error) {
+      console.error(error);
+      setStatus(`Download failed: ${error.message}`, 'error');
+    }
+  }
 
-          <div class="field">
-            <label for="description">Additional Comments</label>
-            <textarea id="description" rows="4" placeholder="Optional extra comments. If empty, the report will show N/A."></textarea>
-          </div>
+  function renderSummaries() {
+    if (!summaries.length) {
+      recordsEl.innerHTML = '<p class="small">No saved records were found.</p>';
+      return;
+    }
+    recordsEl.innerHTML = '';
+    summaries.sort((a,b) => String(b.createdAt).localeCompare(String(a.createdAt))).forEach((s, index) => {
+      const div = document.createElement('div');
+      div.className = 'record';
+      const photoKB = s.photoBytesApprox ? `${Math.round(s.photoBytesApprox/1024)} KB photo` : 'No photo';
+      div.innerHTML = `<strong>${index + 1}. ${escapeText(s.spotName)}</strong><br><span class="small">${escapeText(s.gridName || 'No grid')} · ${escapeText(s.createdAt || 'No date')} · ${photoKB}</span>`;
+      const recordBtn = document.createElement('button');
+      recordBtn.className = 'secondary';
+      recordBtn.textContent = 'Download this full record (.json)';
+      recordBtn.addEventListener('click', () => downloadIndividual(s.id, 'record'));
+      div.appendChild(recordBtn);
+      if (s.hasPhoto) {
+        const photoBtn = document.createElement('button');
+        photoBtn.className = 'secondary';
+        photoBtn.textContent = 'Download this photo';
+        photoBtn.addEventListener('click', () => downloadIndividual(s.id, 'photo'));
+        div.appendChild(photoBtn);
+      }
+      recordsEl.appendChild(div);
+    });
+  }
 
-          <button class="primary full" type="submit" id="saveSpotBtn">Save Spot</button>
-        </form>
-      </section>
+  function escapeText(value) {
+    return String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
 
-      <section class="panel list-panel">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Saved spots</p>
-            <h2>Review & Export</h2>
-          </div>
-          <div class="action-row">
-            <button id="exportDocBtn" class="primary" type="button">Export Word Report</button>
-            <button id="exportJsonBtn" class="secondary" type="button">Export JSON</button>
-            <button id="importJsonBtn" class="secondary" type="button">Import JSON</button>
-            <button id="deleteTodayBtn" class="ghost danger" type="button">Delete Today’s Records</button>
-            <input id="importJsonInput" class="hidden" type="file" accept="application/json,.json" />
-          </div>
-        </div>
+  async function scan() {
+    scanBtn.disabled = true;
+    metadataBtn.disabled = true;
+    fullBtn.disabled = true;
+    setStatus('Opening the existing browser database…');
+    try {
+      db = await openExistingDatabase();
+      summaries = await scanSummaries();
+      const photoCount = summaries.filter(s => s.hasPhoto).length;
+      const approxMB = summaries.reduce((n,s) => n + s.photoBytesApprox, 0) / 1024 / 1024;
+      setStatus(`Found ${summaries.length} record(s), including ${photoCount} photo(s). Approximate photo data: ${approxMB.toFixed(1)} MB.`, summaries.length ? 'ok' : '');
+      metadataBtn.disabled = summaries.length === 0;
+      fullBtn.disabled = summaries.length === 0;
+      renderSummaries();
+    } catch (error) {
+      console.error(error);
+      setStatus(`${error.message}\n\nConfirm that this emergency index.html was uploaded to the root of https://ikkaekros.github.io/bike-spot-logger/ and opened from the same Home Screen icon/app instance where the records were created.`, 'error');
+      recordsEl.innerHTML = '<p class="small">Nothing was changed or deleted.</p>';
+    } finally {
+      scanBtn.disabled = false;
+    }
+  }
 
-        <div class="filters">
-          <input id="searchInput" type="search" placeholder="Search spots or grids" />
-          <select id="categoryFilter">
-            <option value="All">All categories</option>
-            <option value="Government Designated">Government Designated</option>
-            <option value="Company Station">Company Station</option>
-            <option value="High Demand Spot">High Demand Spot</option>
-            <option value="Temporary Opportunity">Temporary Opportunity</option>
-            <option value="Do Not Use / Risky">Do Not Use / Risky</option>
-          </select>
-        </div>
-
-        <div class="report-filters" aria-label="Report date filters">
-          <div>
-            <label for="reportDateFrom">Report Date From</label>
-            <input id="reportDateFrom" type="date" />
-          </div>
-          <div>
-            <label for="reportDateTo">Report Date To</label>
-            <input id="reportDateTo" type="date" />
-          </div>
-          <button id="clearReportDatesBtn" class="ghost" type="button">Clear Report Dates</button>
-        </div>
-        <p class="hint report-filter-hint">The Word report will include only records within the selected date range. Leave blank to include all records.</p>
-
-        <div id="spotsList" class="spots-list"></div>
-      </section>
-    </main>
-  </div>
-
-  <template id="emptyTemplate">
-    <div class="empty-state">
-      <h3>No spots saved yet</h3>
-      <p>Add your first bike drop-off spot using the form.</p>
-    </div>
-  </template>
-
-  <script src="app.js"></script>
+  scanBtn.addEventListener('click', scan);
+  metadataBtn.addEventListener('click', exportMetadata);
+  fullBtn.addEventListener('click', exportFull);
+})();
+</script>
 </body>
 </html>
